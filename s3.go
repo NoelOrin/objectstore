@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -21,13 +22,15 @@ import (
 // Non-AWS endpoints default to path-style addressing, which is what those
 // services expect.
 type S3 struct {
-	client  *s3.Client
-	bucket  string
-	prefix  string
-	timeout time.Duration
+	client    *s3.Client
+	presigner *s3.PresignClient
+	bucket    string
+	prefix    string
+	timeout   time.Duration
 }
 
 var _ Backend = (*S3)(nil)
+var _ Presigner = (*S3)(nil)
 
 func NewS3(cfg Config) (*S3, error) {
 	if strings.TrimSpace(cfg.S3Endpoint) == "" {
@@ -66,11 +69,13 @@ func NewS3(cfg Config) (*S3, error) {
 	if isPathStyle {
 		opts = append(opts, func(o *s3.Options) { o.UsePathStyle = true })
 	}
+	client := s3.NewFromConfig(awsCfg, opts...)
 	return &S3{
-		client:  s3.NewFromConfig(awsCfg, opts...),
-		bucket:  cfg.S3Bucket,
-		prefix:  strings.Trim(strings.ReplaceAll(cfg.S3Prefix, "\\", "/"), "/"),
-		timeout: 10 * time.Second,
+		client:    client,
+		presigner: s3.NewPresignClient(client),
+		bucket:    cfg.S3Bucket,
+		prefix:    strings.Trim(strings.ReplaceAll(cfg.S3Prefix, "\\", "/"), "/"),
+		timeout:   10 * time.Second,
 	}, nil
 }
 
@@ -101,6 +106,37 @@ func (s *S3) Put(ctx context.Context, key string, data []byte, contentType strin
 		return fmt.Errorf("objectstore: put %s: %w", key, err)
 	}
 	return nil
+}
+
+// PresignUpload returns a presigned PUT request for direct client uploads.
+// A positive size is signed as ContentLength so an upload with a different
+// byte count is rejected by S3-compatible services.
+func (s *S3) PresignUpload(ctx context.Context, key string, contentType string, size int64, expires time.Duration) (*PresignedUpload, error) {
+	c, cancel := s.ctx(ctx)
+	defer cancel()
+	input := &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(s.objectKey(key)),
+		ContentType: aws.String(contentType),
+	}
+	if size > 0 {
+		input.ContentLength = aws.Int64(size)
+	}
+	if expires <= 0 {
+		expires = 5 * time.Minute
+	}
+	req, err := s.presigner.PresignPutObject(c, input, func(o *s3.PresignOptions) {
+		o.Expires = expires
+	})
+	if err != nil {
+		return nil, fmt.Errorf("objectstore: presign upload %s: %w", key, err)
+	}
+	return &PresignedUpload{
+		URL:       req.URL,
+		Method:    http.MethodPut,
+		ObjectKey: key,
+		ExpiresAt: time.Now().Add(expires),
+	}, nil
 }
 
 func (s *S3) Get(ctx context.Context, key string) ([]byte, string, error) {

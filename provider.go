@@ -36,6 +36,23 @@ type Backend interface {
 	Name() string
 }
 
+// PresignedUpload describes a presigned HTTP request for a direct client upload.
+// It carries no application-specific fields: callers decide what to do with the
+// returned URL and key.
+type PresignedUpload struct {
+	URL       string
+	Method    string
+	ObjectKey string
+	ExpiresAt time.Time
+}
+
+// Presigner is an optional capability for backends that support direct client
+// uploads. It is deliberately separate from Backend so existing implementations
+// stay source-compatible. Assert a Backend to Presigner to check support.
+type Presigner interface {
+	PresignUpload(ctx context.Context, key string, contentType string, size int64, expires time.Duration) (*PresignedUpload, error)
+}
+
 // Config selects and configures a backend. Callers map their own environment
 // variables onto these fields; the library reads no environment itself.
 type Config struct {
