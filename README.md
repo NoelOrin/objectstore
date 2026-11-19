@@ -1,4 +1,4 @@
-# libs/go/objectstore
+# objectstore
 
 Go 服务共用的对象存储抽象，设计参照 GOSpeak `app/server/internal/storage`：
 一套 `Backend` 接口，屏蔽本地卷、S3 兼容服务与进程内内存三种后端。业务代码只依赖对象键，
