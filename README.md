@@ -1,5 +1,7 @@
 # objectstore
 
+> 语言：[简体中文](README.md) · [English](README.en.md)
+
 Go 对象存储抽象：一套 `Backend` 接口同时支持**本地卷**、**S3 兼容服务**（AWS S3 / Cloudflare R2 /
 MinIO / RustFS 等）与**进程内内存**三种后端。业务代码只依赖对象键（object key），不碰文件路径、
 签名 URL 或 SDK 调用；换后端只改配置，不改代码。
@@ -20,7 +22,7 @@ go get github.com/NoelOrin/objectstore
 ```go
 import (
     "context"
-    "time"
+    "os"
 
     "github.com/NoelOrin/objectstore"
 )
@@ -67,6 +69,20 @@ func saveAndRead(ctx context.Context, backend objectstore.Backend, data []byte) 
 
 键统一用正斜杠（`a/b/c.jpg`）；各后端自行映射到本地路径或 S3 object key。
 
+## 可选能力：Presigner
+
+`Backend` 之外的能力通过可选接口暴露，不影响已有实现：
+
+```go
+type Presigner interface {
+    PresignUpload(ctx context.Context, key, contentType string, size int64, expires time.Duration) (*PresignedUpload, error)
+}
+```
+
+目前只有 `s3` 后端实现；用 `backend.(objectstore.Presigner)` 判断。返回的 URL 是带签名的 PUT 请求，`size > 0` 时 `ContentLength` 会进签名头，多传/少传字节都会被服务端拒绝。`expires <= 0` 时默认 5 分钟。local 与 memory 不实现此接口，调用方据此决定是否走服务端中转。
+
+另一个可选接口 `PublicURLer` 由 local 与 s3 实现，按 `Config.PublicURL` / `S3PublicBaseURL` 返回公开访问 URL；S3 未配置基址时自动按 AWS 虚拟主机或 path-style 拼接。调用方用 `backend.(objectstore.PublicURLer)` 判断，不需要自己拼 URL。
+
 ## 配置
 
 | 字段 | 说明 |
@@ -78,7 +94,10 @@ func saveAndRead(ctx context.Context, backend objectstore.Backend, data []byte) 
 | `S3AccessKey` / `S3SecretKey` | 静态凭证；留空走 SDK 默认凭证链 |
 | `S3Prefix` | 统一对象键前缀（如 `app/prod`），读写自动拼接 |
 | `S3ForcePathStyle` | `true` 时强制 path-style；非 AWS 域名默认自动开启 |
-| `PublicURL` / `S3PublicBaseURL` | 仅供调用方拼对外 URL，库本身不参与（服务端读写不经过公网） |
+| `PublicURL` | local 后端 `PublicURL()` 的公开基址（如 `/uploads`） |
+| `S3PublicBaseURL` | S3 后端 `PublicURL()` 的公开基址（如 CDN 域名），优先于自动拼接 |
+| `S3Timeout` | 单次操作超时，默认 10s |
+| `S3PresignTTL` | `PresignUpload` 默认有效期，默认 5m |
 
 ## 三种后端
 
