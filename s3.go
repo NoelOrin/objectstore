@@ -22,15 +22,19 @@ import (
 // Non-AWS endpoints default to path-style addressing, which is what those
 // services expect.
 type S3 struct {
-	client    *s3.Client
-	presigner *s3.PresignClient
-	bucket    string
-	prefix    string
-	timeout   time.Duration
+	client        *s3.Client
+	presigner     *s3.PresignClient
+	bucket        string
+	endpoint      string
+	publicBaseURL string
+	prefix        string
+	timeout       time.Duration
+	presignTTL    time.Duration
 }
 
 var _ Backend = (*S3)(nil)
 var _ Presigner = (*S3)(nil)
+var _ PublicURLer = (*S3)(nil)
 
 func NewS3(cfg Config) (*S3, error) {
 	if strings.TrimSpace(cfg.S3Endpoint) == "" {
@@ -69,13 +73,24 @@ func NewS3(cfg Config) (*S3, error) {
 	if isPathStyle {
 		opts = append(opts, func(o *s3.Options) { o.UsePathStyle = true })
 	}
+	timeout := cfg.S3Timeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	presignTTL := cfg.S3PresignTTL
+	if presignTTL <= 0 {
+		presignTTL = 5 * time.Minute
+	}
 	client := s3.NewFromConfig(awsCfg, opts...)
 	return &S3{
-		client:    client,
-		presigner: s3.NewPresignClient(client),
-		bucket:    cfg.S3Bucket,
-		prefix:    strings.Trim(strings.ReplaceAll(cfg.S3Prefix, "\\", "/"), "/"),
-		timeout:   10 * time.Second,
+		client:        client,
+		presigner:     s3.NewPresignClient(client),
+		bucket:        cfg.S3Bucket,
+		endpoint:      strings.TrimRight(cfg.S3Endpoint, "/"),
+		publicBaseURL: cfg.S3PublicBaseURL,
+		prefix:        strings.Trim(strings.ReplaceAll(cfg.S3Prefix, "\\", "/"), "/"),
+		timeout:       timeout,
+		presignTTL:    presignTTL,
 	}, nil
 }
 
@@ -123,7 +138,7 @@ func (s *S3) PresignUpload(ctx context.Context, key string, contentType string, 
 		input.ContentLength = aws.Int64(size)
 	}
 	if expires <= 0 {
-		expires = 5 * time.Minute
+		expires = s.presignTTL
 	}
 	req, err := s.presigner.PresignPutObject(c, input, func(o *s3.PresignOptions) {
 		o.Expires = expires
@@ -137,6 +152,25 @@ func (s *S3) PresignUpload(ctx context.Context, key string, contentType string, 
 		ObjectKey: key,
 		ExpiresAt: time.Now().Add(expires),
 	}, nil
+}
+
+// PublicURL returns the public read URL for key. S3PublicBaseURL wins when set;
+// AWS endpoints use virtual-host style, other endpoints use path style.
+func (s *S3) PublicURL(key string) string {
+	if base := strings.TrimRight(s.publicBaseURL, "/"); base != "" {
+		return base + "/" + key
+	}
+	if strings.HasSuffix(s.endpoint, ".amazonaws.com") {
+		host := strings.TrimPrefix(strings.TrimPrefix(s.endpoint, "https://"), "http://")
+		host = strings.TrimSuffix(host, ".amazonaws.com")
+		parts := strings.Split(host, ".")
+		region := ""
+		if len(parts) >= 2 {
+			region = parts[1]
+		}
+		return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.bucket, region, key)
+	}
+	return s.endpoint + "/" + s.bucket + "/" + key
 }
 
 func (s *S3) Get(ctx context.Context, key string) ([]byte, string, error) {

@@ -53,12 +53,20 @@ type Presigner interface {
 	PresignUpload(ctx context.Context, key string, contentType string, size int64, expires time.Duration) (*PresignedUpload, error)
 }
 
+// PublicURLer is an optional capability for backends that can derive a
+// public read URL from an object key. It stays separate from Backend so
+// existing implementations remain source-compatible.
+type PublicURLer interface {
+	PublicURL(key string) string
+}
+
 // Config selects and configures a backend. Callers map their own environment
 // variables onto these fields; the library reads no environment itself.
 type Config struct {
-	Driver    string // "local" (default), "s3" or "memory"
-	LocalDir  string
-	PublicURL string // optional, not used for server-side reads
+	Driver   string // "local" (default), "s3" or "memory"
+	LocalDir string
+	// PublicURL is the public base for the local backend's PublicURL().
+	PublicURL string
 
 	S3Endpoint       string
 	S3Bucket         string
@@ -68,13 +76,17 @@ type Config struct {
 	S3Prefix         string
 	S3PublicBaseURL  string
 	S3ForcePathStyle bool
+	S3Timeout        time.Duration // per-operation timeout, default 10s
+	S3PresignTTL     time.Duration // default presign lifetime, default 5m
 }
 
 // Open builds a backend from cfg. An empty driver means "local".
 func Open(cfg Config) (Backend, error) {
 	switch cfg.Driver {
 	case "", "local":
-		return NewLocal(cfg.LocalDir), nil
+		b := NewLocal(cfg.LocalDir)
+		b.publicURL = cfg.PublicURL
+		return b, nil
 	case "memory":
 		return NewMemory(), nil
 	case "s3":

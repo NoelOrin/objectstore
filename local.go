@@ -14,10 +14,12 @@ import (
 // Local stores objects below a single root directory. Keys are cleaned
 // against a "/" root before joining so "../" can never escape the root.
 type Local struct {
-	root string
+	root      string
+	publicURL string
 }
 
 var _ Backend = (*Local)(nil)
+var _ PublicURLer = (*Local)(nil)
 
 func NewLocal(root string) *Local {
 	if strings.TrimSpace(root) == "" {
@@ -47,6 +49,16 @@ func (l *Local) resolve(key string) (string, error) {
 }
 
 func (l *Local) Name() string { return "local" }
+
+// PublicURL joins the configured public base with key. An empty base returns
+// the key unchanged, so callers decide their own URL shape.
+func (l *Local) PublicURL(key string) string {
+	base := strings.TrimRight(l.publicURL, "/")
+	if base == "" {
+		return key
+	}
+	return base + "/" + key
+}
 
 func (l *Local) Put(_ context.Context, key string, data []byte, _ string) error {
 	full, err := l.resolve(key)
