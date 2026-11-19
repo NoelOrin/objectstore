@@ -18,7 +18,8 @@ import (
 )
 
 // S3 stores objects in any S3-compatible service (AWS, R2, MinIO, RustFS).
-// Endpoint handling and path-style detection follow GOSpeak's S3Provider.
+// Non-AWS endpoints default to path-style addressing, which is what those
+// services expect.
 type S3 struct {
 	client  *s3.Client
 	bucket  string

@@ -1,8 +1,8 @@
-// Package objectstore is the storage abstraction for scraped metadata assets.
-// It follows GOSpeak's app/server/internal/storage pattern: one small provider
-// interface, a local-disk backend for development/containers, and an S3-compatible
-// backend for durable production storage. Application code never sees a path or
-// an SDK call — only object keys.
+// Package objectstore is a small storage abstraction for service-generated
+// assets: one Backend interface, a local-disk backend for development and
+// containers, an S3-compatible backend for durable production storage, and an
+// in-memory backend for tests. Application code never sees a path or an SDK
+// call — only object keys.
 package objectstore
 
 import (
@@ -36,8 +36,8 @@ type Backend interface {
 	Name() string
 }
 
-// Config selects and configures a backend. It mirrors GOSpeak's storage
-// environment variables: STORAGE_DRIVER / STORAGE_LOCAL_DIR / STORAGE_S3_*.
+// Config selects and configures a backend. Callers map their own environment
+// variables onto these fields; the library reads no environment itself.
 type Config struct {
 	Driver    string // "local" (default), "s3" or "memory"
 	LocalDir  string

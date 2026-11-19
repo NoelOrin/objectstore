@@ -8,8 +8,17 @@ import (
 	"testing"
 )
 
-// testBackend runs the same contract against every backend. S3 is included
-// when MUSIC_TEST_S3_* is set, mirroring GOSpeak's integration-test approach.
+// testBackend runs the same contract against every backend. S3 is included when
+// OBJECTSTORE_TEST_S3_* is set, so the file-based backends stay testable offline.
+// testEnv reads OBJECTSTORE_TEST_S3_<suffix>, falling back to the historical
+// MUSIC_TEST_S3_<suffix> name so existing CI setups keep working.
+func testEnv(suffix string) string {
+	if v := os.Getenv("OBJECTSTORE_TEST_S3_" + suffix); v != "" {
+		return v
+	}
+	return os.Getenv("MUSIC_TEST_S3_" + suffix)
+}
+
 func testBackend(t *testing.T, b Backend) {
 	t.Helper()
 	ctx := context.Background()
@@ -68,16 +77,16 @@ func TestLocalContainsPathTraversal(t *testing.T) {
 }
 
 func TestS3BackendWhenConfigured(t *testing.T) {
-	endpoint := os.Getenv("MUSIC_TEST_S3_ENDPOINT")
-	bucket := os.Getenv("MUSIC_TEST_S3_BUCKET")
+	endpoint := testEnv("ENDPOINT")
+	bucket := testEnv("BUCKET")
 	if endpoint == "" || bucket == "" {
 		t.Skip("no S3 test credentials")
 	}
 	b, err := NewS3(Config{
 		S3Endpoint: endpoint, S3Bucket: bucket,
-		S3Region:         os.Getenv("MUSIC_TEST_S3_REGION"),
-		S3AccessKey:      os.Getenv("MUSIC_TEST_S3_ACCESS_KEY"),
-		S3SecretKey:      os.Getenv("MUSIC_TEST_S3_SECRET_KEY"),
+		S3Region:         testEnv("REGION"),
+		S3AccessKey:      testEnv("ACCESS_KEY"),
+		S3SecretKey:      testEnv("SECRET_KEY"),
 		S3ForcePathStyle: true,
 	})
 	if err != nil {

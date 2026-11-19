@@ -12,8 +12,7 @@ import (
 )
 
 // Local stores objects below a single root directory. Keys are cleaned
-// against a "/" root before joining so "../" can never escape the root — the
-// same guard GOSpeak's LocalProvider.resolvePath uses.
+// against a "/" root before joining so "../" can never escape the root.
 type Local struct {
 	root string
 }
